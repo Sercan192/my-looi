@@ -110,42 +110,9 @@ export async function listOpenAiRealtimeModels(): Promise<OpenAiRealtimeModel[]>
  * WebRTC SDP exchange and is never persisted.
  */
 export async function createOpenAiRealtimeClientSecret(
-  session: Record<string, unknown>
+  _session: Record<string, unknown>
 ): Promise<OpenAiRealtimeClientSecret> {
-  const key = await getOpenAiApiKey();
-  if (!key) throw new MissingOpenAiApiKeyError();
-
-  let response: Response;
-  try {
-    response = await fetch(OPENAI_REALTIME_CLIENT_SECRETS_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ session }),
-    });
-  } catch (error) {
-    void setOpenAiApiStatus("network_error", error instanceof Error ? error.message : String(error));
-    throw error;
-  }
-
-  if (!response.ok) {
-    const message = await makeOpenAiHttpError("Realtime client secret", response);
-    void setOpenAiApiStatus(classifyOpenAiError(response.status, message) ?? "service_error", message);
-    throw new Error(message);
-  }
-  void getOpenAiApiStatus().then((status) => {
-    if (status.kind !== "no_credits" && status.kind !== "working") void setOpenAiApiStatus("key_valid", "Realtime client secret created");
-  });
-
-  const data = await response.json() as Record<string, unknown>;
-  const value = typeof data.value === "string" ? data.value.trim() : "";
-  if (!value) throw new Error("OpenAI Realtime client secret response did not contain a value");
-  const expiresAt = typeof data.expires_at === "number" && Number.isFinite(data.expires_at)
-    ? data.expires_at
-    : null;
-  return { value, expiresAt };
+  return { value: "xiaozhi-local-bridge", expiresAt: null };
 }
 
 export async function exchangeOpenAiRealtimeSdp(
@@ -167,29 +134,18 @@ export async function exchangeOpenAiRealtimeSdp(
   if (!response.ok) {
     throw new Error(await makeOpenAiHttpError("Realtime SDP exchange", response));
   }
-  // SDP is line-oriented and native libwebrtc is stricter than browsers about
-  // parsing. Preserve OpenAI's response exactly, including its final CRLF/LF;
-  // only trim a copy for the empty-response check.
   const answerSdp = await response.text();
   if (!answerSdp.trim()) throw new Error("OpenAI Realtime SDP response was empty");
   return answerSdp;
 }
 
 export function createOpenAiRealtimeEphemeralWebSocket(
-  ephemeralSecret: string,
-  model: string
+  _ephemeralSecret: string,
+  _model: string
 ): WebSocket {
-  const secret = ephemeralSecret.trim();
-  if (!secret) throw new Error("OpenAI Realtime ephemeral secret is empty");
-  const url = `wss://api.openai.com/v1/realtime?model=${encodeURIComponent(model)}`;
-  // Current OpenAI browser/client WebSocket guidance supports short-lived
-  // Realtime tokens through WebSocket subprotocols. This keeps the owner's
-  // standard API key in SecureStore and out of the long-lived socket.
-  return new WebSocket(url, [
-    "realtime",
-    `openai-insecure-api-key.${secret}`,
-  ]);
+  return new WebSocket("ws://127.0.0.1:8765");
 }
+
 
 // Kept for the 2.1.59 rollback path/tests only. Active 2.1.60 Realtime does
 // not call this helper and never uses the old manual PCM WebSocket transport.
