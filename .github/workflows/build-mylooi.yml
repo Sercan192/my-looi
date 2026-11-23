@@ -23,13 +23,10 @@ jobs:
             -alias mylooi -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass 123456 -keypass 123456 \
             -dname "CN=MyLOOI, OU=Dev, O=MyLOOI, L=Istanbul, S=Istanbul, C=TR"
-          cat << 'EOF' > ~/.config/my-looi/signing/release.env
-          MY_LOOI_RELEASE_KEYSTORE=$HOME/.config/my-looi/signing/my-looi-release.keystore
-          MY_LOOI_RELEASE_KEY_ALIAS=mylooi
-          MY_LOOI_RELEASE_STORE_PASSWORD=123456
-          MY_LOOI_KEY_PASSWORD=123456
-          EOF
-          chmod 600 ~/.config/my-looi/signing/release.env
+          echo "MY_LOOI_RELEASE_KEYSTORE=$HOME/.config/my-looi/signing/my-looi-release.keystore" >> $GITHUB_ENV
+          echo "MY_LOOI_RELEASE_KEY_ALIAS=mylooi" >> $GITHUB_ENV
+          echo "MY_LOOI_RELEASE_STORE_PASSWORD=123456" >> $GITHUB_ENV
+          echo "MY_LOOI_RELEASE_KEY_PASSWORD=123456" >> $GITHUB_ENV
       - run: |
           SDK_DIR="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
           yes | $SDK_DIR/cmdline-tools/latest/bin/sdkmanager "platforms;android-36" "build-tools;36.0.0"
@@ -38,4 +35,3 @@ jobs:
         with:
           name: my-looi-xiaozhi-apk
           path: output/android/*.apk
-
