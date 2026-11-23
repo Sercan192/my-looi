@@ -1,3 +1,4 @@
+export const robotAudioLoudness = { current: 0 };
 import { useEffect, useMemo, useRef } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, {
