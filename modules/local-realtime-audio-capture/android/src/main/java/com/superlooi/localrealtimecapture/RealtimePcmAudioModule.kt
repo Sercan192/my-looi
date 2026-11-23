@@ -276,7 +276,7 @@ class RealtimePcmAudioModule : Module() {
     }
   }
 
-    private fun ensurePlaybackLocked() {
+   private fun ensurePlaybackLocked() {
     if (playbackTrack != null && playbackRunning.get()) return
     val minBuffer = AudioTrack.getMinBufferSize(
       PLAYBACK_RATE,
@@ -302,11 +302,6 @@ class RealtimePcmAudioModule : Module() {
       .setTransferMode(AudioTrack.MODE_STREAM)
       .setBufferSizeInBytes(bufferBytes)
       .build()
-
-      )
-      .setTransferMode(AudioTrack.MODE_STREAM)
-      .setBufferSizeInBytes(bufferBytes)
-      .build()
     if (track.state != AudioTrack.STATE_INITIALIZED) {
       track.release()
       throw IllegalStateException("Realtime PCM AudioTrack failed to initialize")
@@ -321,6 +316,7 @@ class RealtimePcmAudioModule : Module() {
       start()
     }
   }
+
 
   private fun playbackLoop(track: AudioTrack) {
     Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO)
