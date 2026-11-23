@@ -5,9 +5,9 @@ import Animated, {
   Easing,
   interpolate,
   useAnimatedStyle,
+  useFrameCallback,
   useSharedValue,
   withDelay,
-  withRepeat,
   withSequence,
   withSpring,
   withTiming,
@@ -130,8 +130,7 @@ const FACE_PALETTES: Record<FacePaletteId, FacePaletteVisual> = {
   },
 };
 
-const SPRING_CONFIG = { damping: 14, stiffness: 170, mass: 0.75 };
-const GAZE_SPRING = { damping: 16, stiffness: 140, mass: 0.8 };
+const SPRING_CONFIG = { damping: 14, stiffness: 185, mass: 0.72 };
 
 export function RobotFace(props: RobotFaceProps) {
   return <ClassicRobotFace {...props} />;
@@ -159,12 +158,48 @@ function ClassicRobotFace({
   const socialGazeX = useSocialAttentionStore((state) => state.gazeX);
   const socialGazeY = useSocialAttentionStore((state) => state.gazeY);
 
+  // Biyomekanik Sakkadik & Mikro-Tik Durumları (UI Thread 60/120 FPS)
   const blink = useSharedValue(1);
-  const gaze = useSharedValue(0);
-  const gazeY = useSharedValue(0);
-  const breathe = useSharedValue(0);
+  const lookX = useSharedValue(0);
+  const lookY = useSharedValue(0);
+  const torsionZ = useSharedValue(0);
   const speakPulse = useSharedValue(0);
   const mouthPulse = useSharedValue(0);
+
+  // Balistik Fizik Motoru Shared State (useEyeMechanics portu)
+  const simTime = useSharedValue(0);
+  const nextLookChange = useSharedValue(0.8);
+  const targetLookX = useSharedValue(0);
+  const targetLookY = useSharedValue(0);
+  const currLookX = useSharedValue(0);
+  const currLookY = useSharedValue(0);
+  const isGlancing = useSharedValue(false);
+
+  const nextJitterTime = useSharedValue(0.2);
+  const tickOffsetX = useSharedValue(0);
+  const tickOffsetY = useSharedValue(0);
+  const targetJitterX = useSharedValue(0);
+  const targetJitterY = useSharedValue(0);
+  const currJitterX = useSharedValue(0);
+  const currJitterY = useSharedValue(0);
+
+  const nextAudioShift = useSharedValue(0);
+  const targetAudioX = useSharedValue(0);
+  const targetAudioY = useSharedValue(0);
+  const currAudioX = useSharedValue(0);
+  const currAudioY = useSharedValue(0);
+
+  const nextMicro3D = useSharedValue(0);
+  const targetMicroZ = useSharedValue(0);
+  const currMicroZ = useSharedValue(0);
+
+  const isSpeakingSV = useSharedValue(false);
+  const isSleepingSV = useSharedValue(false);
+  const isProcessingSV = useSharedValue(false);
+  const socialActiveSV = useSharedValue(false);
+  const socialXSV = useSharedValue(0);
+  const socialYSV = useSharedValue(0);
+
   const animLeftScaleX = useSharedValue(1);
   const animLeftScaleY = useSharedValue(1);
   const animRightScaleX = useSharedValue(1);
@@ -215,205 +250,247 @@ function ClassicRobotFace({
   );
 
   useEffect(() => {
-    animLeftScaleX.value = withSpring(face.leftEyeScaleX, SPRING_CONFIG);
-    animLeftScaleY.value = withSpring(face.leftEyeScaleY, SPRING_CONFIG);
-    animRightScaleX.value = withSpring(face.rightEyeScaleX, SPRING_CONFIG);
-    animRightScaleY.value = withSpring(face.rightEyeScaleY, SPRING_CONFIG);
-    animPupilScale.value = withSpring(face.pupilScale, SPRING_CONFIG);
-    animBottomLid.value = withSpring(face.bottomLidLift, SPRING_CONFIG);
-    animTopLid.value = withSpring(face.topLidDrop, SPRING_CONFIG);
+    isSpeakingSV.value = voiceState === "speaking";
+    isSleepingSV.value = voiceState === "sleeping";
+    isProcessingSV.value = voiceState === "processing";
+    socialActiveSV.value = Boolean(socialAttentionActive && socialFaceVisible);
+    socialXSV.value = socialGazeX;
+    socialYSV.value = socialGazeY;
   }, [
-    animBottomLid,
-    animLeftScaleX,
-    animLeftScaleY,
-    animPupilScale,
-    animRightScaleX,
-    animRightScaleY,
-    animTopLid,
-    face,
+    isProcessingSV,
+    isSleepingSV,
+    isSpeakingSV,
+    socialActiveSV,
+    socialAttentionActive,
+    socialFaceVisible,
+    socialGazeX,
+    socialGazeY,
+    socialXSV,
+    socialYSV,
+    voiceState,
   ]);
 
   useEffect(() => {
-    if (!characterMood) return;
-    recordDiagnosticEvent("character", "reaction-render-state", {
-      mood: characterMood,
-      reactionId: characterReactionId,
-      voiceState,
-      conversationMode,
-      visible: characterReactionVisible,
-    });
-  }, [characterMood, characterReactionId, characterReactionVisible, conversationMode, voiceState]);
-
-  useEffect(() => {
-    let blinkCount = 0;
-    const runBlink = () => {
-      blinkCount += 1;
-      const isDoubleBlink = blinkCount % 3 === 0;
-      if (isDoubleBlink) {
-        blink.value = withSequence(
-          withTiming(0.05, { duration: 65, easing: Easing.out(Easing.quad) }),
-          withTiming(1, { duration: 95, easing: Easing.out(Easing.quad) }),
-          withDelay(70, withTiming(0.05, { duration: 65, easing: Easing.out(Easing.quad) })),
-          withSpring(1, { damping: 12, stiffness: 220 })
-        );
-      } else {
-        blink.value = withSequence(
-          withTiming(0.05, { duration: 70, easing: Easing.out(Easing.quad) }),
-          withSpring(1, { damping: 12, stiffness: 210 })
-        );
-      }
-    };
-    const interval = voiceState === "processing" ? 2700 : 3800;
+animLeftScaleX.value = withSpring(face.leftEyeScaleX, SPRING_CONFIG);
+animLeftScaleY.value = withSpring(face.leftEyeScaleY, SPRING_CONFIG);
+animRightScaleX.value = withSpring(face.rightEyeScaleX, SPRING_CONFIG);
+animRightScaleY.value = withSpring(face.rightEyeScaleY, SPRING_CONFIG);
+animPupilScale.value = withSpring(face.pupilScale, SPRING_CONFIG);
+animBottomLid.value = withSpring(face.bottomLidLift, SPRING_CONFIG);
+animTopLid.value = withSpring(face.topLidDrop, SPRING_CONFIG);
+}, [
+animBottomLid,
+animLeftScaleX,
+animLeftScaleY,
+animPupilScale,
+animRightScaleX,
+animRightScaleY,
+animTopLid,
+face,
+]);
+useEffect(() => {
+if (!characterMood) return;
+recordDiagnosticEvent("character", "reaction-render-state", {
+mood: characterMood,
+reactionId: characterReactionId,
+voiceState,
+conversationMode,
+visible: characterReactionVisible,
+});
+}, [characterMood, characterReactionId, characterReactionVisible, conversationMode, voiceState]);
+// 60/120 FPS UI THREAD BİYOMEKANİK GÖZ FİZİĞİ (useEyeMechanics Portu)
+useFrameCallback((frameInfo) => {
+const dt = Math.min(0.05, (frameInfo.timeSincePreviousFrame ?? 16.67) / 1000);
+simTime.value += dt;
+const now = simTime.value;
+const playing = isSpeakingSV.value;
+const sleeping = isSleepingSV.value;
+// 1. BALİSTİK SAKKADİK HAREKET (FLICK & SNAP)
+const intervalMult = playing ? 0.95 : sleeping ? 2.1 : 1.2;
+if (now >= nextLookChange.value) {
+// Sakkad anında %28 ihtimalle doğal göz kırpma refleksi tetikle
+if (!sleeping && Math.random() < 0.28) {
+blink.value = withSequence(
+withTiming(0.06, { duration: 60, easing: Easing.out(Easing.quad) }),
+withSpring(1, { damping: 13, stiffness: 220 })
+);
+}
+if (socialActiveSV.value) {
+targetLookX.value = socialXSV.value * 0.85 + (Math.random() - 0.5) * 0.08;
+targetLookY.value = socialYSV.value * 0.85 + (Math.random() - 0.5) * 0.06;
+nextLookChange.value = now + 0.35 + Math.random() * 0.45;
+} else if (isGlancing.value) {
+targetLookX.value = (Math.random() - 0.5) * 0.08;
+targetLookY.value = (Math.random() - 0.5) * 0.05;
+isGlancing.value = false;
+nextLookChange.value = now + (1.1 + Math.random() * 1.4) * intervalMult;
+} else {
+const shouldGlanceAway = Math.random() < 0.38;
+if (shouldGlanceAway) {
+isGlancing.value = true;
+const dir = Math.random() > 0.5 ? 1 : -1;
+const randX = dir * (0.55 + Math.random() * 0.45);
+let randY = (Math.random() - 0.5) * 0.35;
+// Çapraz bakış kısıtlaması (X çoksa Y menzilini kıs)
+const xIntensity = Math.abs(randX);
+randY *= Math.max(0.2, 1.0 - xIntensity * 0.6);
+targetLookX.value = randX;
+targetLookY.value = randY;
+nextLookChange.value = now + (0.65 + Math.random() * 0.85) * intervalMult;
+} else {
+const randX = (Math.random() - 0.5) * 0.46;
+let randY = (Math.random() - 0.5) * 0.24;
+const xIntensity = Math.abs(randX) * 2.0;
+randY *= Math.max(0.3, 1.0 - xIntensity * 0.5);
+targetLookX.value = randX;
+targetLookY.value = randY;
+nextLookChange.value = now + (0.9 + Math.random() * 1.3) * intervalMult;
+}
+}
+}
+// Power-based balistik interpolasyon (Hızlı fırlayıp aniden durma)
+const dx = targetLookX.value - currLookX.value;
+const dy = targetLookY.value - currLookY.value;
+const dist = Math.sqrt(dx * dx + dy * dy);
+const speedMult = playing ? 1.25 : 0.9;
+const baseSpeed = 24.0 * speedMult;
+const snapFactor = Math.min(1.0, dt * baseSpeed * (1.0 + dist * 5.0));
+currLookX.value += dx * snapFactor;
+currLookY.value += dy * snapFactor;
+// 2. POISSON MİKRO-SAKKADİK "TICKS" (KESKİN TİTREME)
+const jitterMult = playing ? 0.65 : sleeping ? 0.15 : 0.48;
+if (now >= nextJitterTime.value) {
+tickOffsetX.value = (Math.random() - 0.5) * 0.06 * jitterMult;
+tickOffsetY.value = (Math.random() - 0.5) * 0.05 * jitterMult;
+targetJitterX.value = (Math.random() - 0.5) * 0.08 * jitterMult;
+targetJitterY.value = (Math.random() - 0.5) * 0.06 * jitterMult;
+nextJitterTime.value = now + (0.25 + Math.random() * 0.5) * (playing ? 1.0 : 1.4);
+}
+const tickDecay = Math.min(1.0, dt * 25.0);
+tickOffsetX.value *= 1.0 - tickDecay;
+tickOffsetY.value *= 1.0 - tickDecay;
+const jitterLerp = Math.min(1.0, dt * 11.0);
+currJitterX.value += (targetJitterX.value - currJitterX.value) * jitterLerp;
+currJitterY.value += (targetJitterY.value - currJitterY.value) * jitterLerp;
+// 3. SES DUYARLI MİKRO ODAK KAYMASI & TORSION (Z)
+if (playing && now >= nextAudioShift.value) {
+targetAudioX.value = (Math.random() - 0.5) * 0.06;
+targetAudioY.value = (Math.random() - 0.5) * 0.05;
+nextAudioShift.value = now + 0.15 + Math.random() * 0.2;
+} else if (!playing) {
+targetAudioX.value = 0;
+targetAudioY.value = 0;
+}
+const audioLerp = Math.min(1.0, dt * 12.0);
+currAudioX.value += (targetAudioX.value - currAudioX.value) * audioLerp;
+currAudioY.value += (targetAudioY.value - currAudioY.value) * audioLerp;
+if (now >= nextMicro3D.value) {
+targetMicroZ.value = (Math.random() - 0.5) * (playing ? 2.4 : 1.1);
+nextMicro3D.value = now + 0.7 + Math.random() * 0.8;
+}
+currMicroZ.value += (targetMicroZ.value - currMicroZ.value) * Math.min(1.0, dt * 9.0);
+// Tüm bileşenleri birleştir
+lookX.value = currLookX.value + currJitterX.value + tickOffsetX.value + currAudioX.value;
+lookY.value = currLookY.value + currJitterY.value + tickOffsetY.value + currAudioY.value;
+torsionZ.value = currMicroZ.value;
+});
+// Periyodik Doğal Göz Kırpma (Tekli + Çiftli Kırpma)
+useEffect(() => {
+let blinkCount = 0;
+const runBlink = () => {
+blinkCount += 1;
+if (blinkCount % 3 === 0) {
+blink.value = withSequence(
+withTiming(0.05, { duration: 60, easing: Easing.out(Easing.quad) }),
+withTiming(1, { duration: 90, easing: Easing.out(Easing.quad) }),
+withDelay(65, withTiming(0.05, { duration: 60, easing: Easing.out(Easing.quad) })),
+withSpring(1, { damping: 12, stiffness: 220 })
+);
+} else {
+blink.value = withSequence(
+withTiming(0.05, { duration: 65, easing: Easing.out(Easing.quad) }),
+withSpring(1, { damping: 12, stiffness: 210 })
+);
+}
+};
+const interval = voiceState === "processing" ? 2800 : 4100;
 const timer = setInterval(runBlink, interval);
 return () => {
 clearInterval(timer);
 cancelAnimation(blink);
 };
 }, [blink, voiceState]);
-useEffect(() => {
-cancelAnimation(gaze);
-cancelAnimation(gazeY);
-if (socialAttentionActive && socialFaceVisible) {
-gaze.value = withSpring(socialGazeX, GAZE_SPRING);
-gazeY.value = withSpring(socialGazeY, GAZE_SPRING);
-} else if (voiceState === "processing") {
-gaze.value = withRepeat(
-withSequence(
-withTiming(-0.85, { duration: 680, easing: Easing.inOut(Easing.sin) }),
-withTiming(0.85, { duration: 780, easing: Easing.inOut(Easing.sin) })
-),
--1,
-true
-);
-gazeY.value = withTiming(-0.35, { duration: 220 });
-} else if (voiceState === "sleeping") {
-gaze.value = withRepeat(
-withSequence(
-withTiming(-0.4, { duration: 2600, easing: Easing.inOut(Easing.sin) }),
-withTiming(0.4, { duration: 2900, easing: Easing.inOut(Easing.sin) })
-),
--1,
-true
-);
-gazeY.value = withTiming(0.15, { duration: 240 });
-} else {
-gaze.value = withRepeat(
-withSequence(
-withTiming(0, { duration: 1600 }),
-withSpring(0.28, GAZE_SPRING),
-withTiming(0.28, { duration: 900 }),
-withSpring(-0.24, GAZE_SPRING),
-withTiming(-0.24, { duration: 850 }),
-withSpring(0, GAZE_SPRING)
-),
--1,
-false
-);
-gazeY.value = withRepeat(
-withSequence(
-withTiming(0, { duration: 2100 }),
-withSpring(-0.18, GAZE_SPRING),
-withTiming(-0.18, { duration: 1100 }),
-withSpring(0, GAZE_SPRING)
-),
--1,
-false
-);
-}
-return () => {
-cancelAnimation(gaze);
-cancelAnimation(gazeY);
-};
-}, [gaze, gazeY, socialAttentionActive, socialFaceVisible, socialGazeX, socialGazeY, voiceState]);
-useEffect(() => {
-const duration = voiceState === "speaking" ? 420 : voiceState === "listening" ? 680 : 1550;
-breathe.value = withRepeat(
-withSequence(
-withTiming(1, { duration, easing: Easing.inOut(Easing.sin) }),
-withTiming(0, { duration, easing: Easing.inOut(Easing.sin) })
-),
--1
-);
-return () => cancelAnimation(breathe);
-}, [breathe, voiceState]);
+// Konuşma Nabzı
 useEffect(() => {
 cancelAnimation(mouthPulse);
 cancelAnimation(speakPulse);
 if (voiceState === "speaking") {
-mouthPulse.value = withRepeat(
-withSequence(
-withTiming(1, { duration: 140, easing: Easing.out(Easing.quad) }),
-withTiming(0.15, { duration: 170, easing: Easing.inOut(Easing.quad) })
-),
--1,
-true
+mouthPulse.value = withSequence(
+withTiming(1, { duration: 130 }),
+withTiming(0.2, { duration: 160 }),
+withTiming(0.95, { duration: 140 }),
+withTiming(0.15, { duration: 170 })
 );
-speakPulse.value = withRepeat(
-withSequence(
-withTiming(1, { duration: 190, easing: Easing.out(Easing.sin) }),
-withTiming(0, { duration: 210, easing: Easing.in(Easing.sin) })
-),
--1,
-true
+const t1 = setInterval(() => {
+mouthPulse.value = withSequence(
+withTiming(0.85 + Math.random() * 0.25, { duration: 110 }),
+withTiming(0.15 + Math.random() * 0.2, { duration: 140 })
 );
+speakPulse.value = withSequence(
+withTiming(0.7 + Math.random() * 0.3, { duration: 150 }),
+withTiming(0, { duration: 180 })
+);
+}, 280);
+return () => clearInterval(t1);
 } else {
 mouthPulse.value = withTiming(0, { duration: 120 });
 speakPulse.value = withTiming(0, { duration: 140 });
 }
-return () => {
-cancelAnimation(mouthPulse);
-cancelAnimation(speakPulse);
-};
 }, [mouthPulse, speakPulse, voiceState]);
-const gazeTravelX = isAvatar ? 3.5 : 22;
-const gazeTravelY = isAvatar ? 2.5 : 13;
+const gazeTravelX = isAvatar ? 4 : 25;
+const gazeTravelY = isAvatar ? 2.5 : 14;
 const leftEyeMotionStyle = useAnimatedStyle(() => ({
 transform: [
-{ scaleX: animLeftScaleX.value * interpolate(speakPulse.value, [0, 1], [1, 1.04]) },
-{ scaleY: animLeftScaleY.value * blink.value * interpolate(speakPulse.value, [0, 1], [1, 1.05]) },
-{ translateX: interpolate(gaze.value, [-1, 1], [-gazeTravelX, gazeTravelX]) },
-{
-translateY:
-interpolate(gazeY.value, [-1, 1], [-gazeTravelY, gazeTravelY]) +
-interpolate(breathe.value, [0, 1], [0, voiceState === "speaking" ? -3 : -1.5]),
-},
+{ scaleX: animLeftScaleX.value * interpolate(speakPulse.value,, [1, 1.04]) },
+{ scaleY: animLeftScaleY.value * blink.value * interpolate(speakPulse.value,, [1, 1.05]) },
+{ translateX: lookX.value * gazeTravelX },
+{ translateY: lookY.value * gazeTravelY },
+{ rotate: ${torsionZ.value}deg },
 ],
 }));
 const rightEyeMotionStyle = useAnimatedStyle(() => ({
 transform: [
-{ scaleX: animRightScaleX.value * interpolate(speakPulse.value, [0, 1], [1, 1.04]) },
-{ scaleY: animRightScaleY.value * blink.value * interpolate(speakPulse.value, [0, 1], [1, 1.05]) },
-{ translateX: interpolate(gaze.value, [-1, 1], [-gazeTravelX, gazeTravelX]) },
-{
-translateY:
-interpolate(gazeY.value, [-1, 1], [-gazeTravelY, gazeTravelY]) +
-interpolate(breathe.value, [0, 1], [0, voiceState === "speaking" ? -3 : -1.5]),
-},
+{ scaleX: animRightScaleX.value * interpolate(speakPulse.value,, [1, 1.04]) },
+{ scaleY: animRightScaleY.value * blink.value * interpolate(speakPulse.value,, [1, 1.05]) },
+{ translateX: lookX.value * gazeTravelX },
+{ translateY: lookY.value * gazeTravelY },
+{ rotate: ${-torsionZ.value * 0.7}deg },
 ],
 }));
-const pupilParallaxX = isAvatar ? 2.5 : 15;
-const pupilParallaxY = isAvatar ? 2 : 10;
+// Paralaks İç Göz Bebeği (Dış gözden 1.38x daha hızlı kayarak 3D küre derinliği verir)
+const pupilParallaxX = isAvatar ? 2.8 : 16;
+const pupilParallaxY = isAvatar ? 2.0 : 10;
 const pupilAnimatedStyle = useAnimatedStyle(() => ({
 transform: [
-{ translateX: interpolate(gaze.value, [-1, 1], [-pupilParallaxX, pupilParallaxX]) },
-{ translateY: interpolate(gazeY.value, [-1, 1], [-pupilParallaxY, pupilParallaxY]) },
-{ scale: animPupilScale.value * interpolate(speakPulse.value, [0, 1], [1, 1.08]) },
+{ translateX: lookX.value * pupilParallaxX },
+{ translateY: lookY.value * pupilParallaxY },
+{ scale: animPupilScale.value * interpolate(speakPulse.value,, [1, 1.08]) },
 ],
 }));
 const bottomLidAnimatedStyle = useAnimatedStyle(() => ({
 transform: [
-{ translateY: interpolate(animBottomLid.value, [0, 1], [isAvatar ? 16 : 96, isAvatar ? 5 : 34]) },
+{ translateY: interpolate(animBottomLid.value,, [isAvatar ? 16 : 98, isAvatar ? 5 : 34]) },
 ],
 }));
 const topLidAnimatedStyle = useAnimatedStyle(() => ({
 transform: [
-{ translateY: interpolate(animTopLid.value, [0, 1], [isAvatar ? -16 : -96, isAvatar ? -6 : -38]) },
+{ translateY: interpolate(animTopLid.value,, [isAvatar ? -16 : -98, isAvatar ? -6 : -38]) },
 ],
 }));
 const mouthAnimatedStyle = useAnimatedStyle(() => ({
 transform: [
-{ scaleX: interpolate(mouthPulse.value, [0, 1], [0.85, 1.18]) },
-{ scaleY: interpolate(mouthPulse.value, [0, 1], [0.85, 1.25]) },
+{ scaleX: interpolate(mouthPulse.value,, [0.85, 1.2]) },
+{ scaleY: interpolate(mouthPulse.value,, [0.85, 1.28]) },
 ],
 }));
 const baseEyeWidth = (isAvatar ? 18 : 114) * faceStyle.eyeWidthScale;
@@ -471,7 +548,7 @@ boxShadow: ${isAvatar ? "0 0 8px" : "0 0 28px"} ${palette.eyeGlow},
 },
 ]}
 >
-{/* Inner OLED Pupil + Dual Catchlights */}
+{/* İç OLED Göz Bebeği + Çift Cam Parıltısı */}
 <Animated.View
 style={[
 styles.pupilCore,
@@ -480,7 +557,7 @@ pupilAnimatedStyle,
 width: pupilSize,
 height: pupilSize,
 borderRadius: 999,
-backgroundColor: "rgba(4, 14, 28, 0.72)",
+backgroundColor: "rgba(4, 14, 28, 0.74)",
 borderWidth: isAvatar ? 0.8 : 2,
 borderColor: palette.accentColor,
 },
@@ -495,7 +572,7 @@ width: mainHighlight,
 height: mainHighlight,
 borderRadius: 999,
 backgroundColor: "#FFFFFF",
-opacity: 0.95,
+opacity: 0.96,
 }}
 />
 <View
@@ -507,11 +584,11 @@ width: subHighlight,
 height: subHighlight,
 borderRadius: 999,
 backgroundColor: "#FFFFFF",
-opacity: 0.75,
+opacity: 0.78,
 }}
 />
 </Animated.View>
-{/* Top & Bottom Expressive Eyelids */}
+{/* Dinamik Üst & Alt Göz Kapakları */}
 <Animated.View
 pointerEvents="none"
 style={[
