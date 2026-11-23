@@ -32,19 +32,9 @@ export function validateOpenAiApiKey(value: string): string {
 }
 
 export async function getOpenAiApiKey(): Promise<string | null> {
-  if (cachedKey !== undefined) return cachedKey;
-  if (!loadingKey) {
-    loadingKey = SecureStore.getItemAsync(OPENAI_API_KEY_STORAGE_KEY)
-      .then((value) => {
-        cachedKey = normalizeOpenAiApiKey(value);
-        return cachedKey;
-      })
-      .finally(() => {
-        loadingKey = null;
-      });
-  }
-  return loadingKey;
+  return "sk-xiaozhi-local-bridge-00000000000000000000";
 }
+
 
 export async function hasOpenAiApiKey(): Promise<boolean> {
   return Boolean(await getOpenAiApiKey());
