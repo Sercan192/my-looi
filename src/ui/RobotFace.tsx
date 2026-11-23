@@ -1,4 +1,3 @@
-export const robotAudioLoudness = { current: 0 };
 import { useEffect, useMemo, useRef } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, {
@@ -149,6 +148,7 @@ function ClassicRobotFace({
   const faceStyle = FACE_STYLES[faceStyleId] ?? FACE_STYLES.classic;
   const palette = FACE_PALETTES[facePaletteId] ?? FACE_PALETTES.cyan;
   const streamingText = useConversationStore((state) => state.streamingText);
+  const isUserSpeaking = useConversationStore((state) => state.isUserSpeaking);
   const realtimeReadiness = useConversationStore((state) => state.realtimeReadiness);
   const conversationMode = useUserStore((state) => state.preferences.conversationMode);
   const characterMood = useCharacterReactionStore((state) => state.mood);
@@ -159,7 +159,6 @@ function ClassicRobotFace({
   const socialGazeX = useSocialAttentionStore((state) => state.gazeX);
   const socialGazeY = useSocialAttentionStore((state) => state.gazeY);
 
-  // Biyomekanik Sakkadik & Mikro-Tik Durumları (UI Thread 60/120 FPS)
   const blink = useSharedValue(1);
   const lookX = useSharedValue(0);
   const lookY = useSharedValue(0);
@@ -167,7 +166,6 @@ function ClassicRobotFace({
   const speakPulse = useSharedValue(0);
   const mouthPulse = useSharedValue(0);
 
-  // Balistik Fizik Motoru Shared State (useEyeMechanics portu)
   const simTime = useSharedValue(0);
   const nextLookChange = useSharedValue(0.8);
   const targetLookX = useSharedValue(0);
@@ -189,14 +187,17 @@ function ClassicRobotFace({
   const targetAudioY = useSharedValue(0);
   const currAudioX = useSharedValue(0);
   const currAudioY = useSharedValue(0);
+  const nextSyllableTime = useSharedValue(0);
+  const targetLoudness = useSharedValue(0);
+  const currLoudness = useSharedValue(0);
 
   const nextMicro3D = useSharedValue(0);
   const targetMicroZ = useSharedValue(0);
   const currMicroZ = useSharedValue(0);
 
   const isSpeakingSV = useSharedValue(false);
+  const isUserSpeakingSV = useSharedValue(false);
   const isSleepingSV = useSharedValue(false);
-  const isProcessingSV = useSharedValue(false);
   const socialActiveSV = useSharedValue(false);
   const socialXSV = useSharedValue(0);
   const socialYSV = useSharedValue(0);
@@ -252,15 +253,16 @@ function ClassicRobotFace({
 
   useEffect(() => {
     isSpeakingSV.value = voiceState === "speaking";
+    isUserSpeakingSV.value = Boolean(isUserSpeaking);
     isSleepingSV.value = voiceState === "sleeping";
-    isProcessingSV.value = voiceState === "processing";
     socialActiveSV.value = Boolean(socialAttentionActive && socialFaceVisible);
     socialXSV.value = socialGazeX;
     socialYSV.value = socialGazeY;
   }, [
-    isProcessingSV,
     isSleepingSV,
     isSpeakingSV,
+    isUserSpeaking,
+    isUserSpeakingSV,
     socialActiveSV,
     socialAttentionActive,
     socialFaceVisible,
@@ -269,9 +271,8 @@ function ClassicRobotFace({
     socialXSV,
     socialYSV,
     voiceState,
-  ]);
-
-  useEffect(() => {
+]);
+useEffect(() => {
 animLeftScaleX.value = withSpring(face.leftEyeScaleX, SPRING_CONFIG);
 animLeftScaleY.value = withSpring(face.leftEyeScaleY, SPRING_CONFIG);
 animRightScaleX.value = withSpring(face.rightEyeScaleX, SPRING_CONFIG);
@@ -305,11 +306,26 @@ const dt = Math.min(0.05, (frameInfo.timeSincePreviousFrame ?? 16.67) / 1000);
 simTime.value += dt;
 const now = simTime.value;
 const playing = isSpeakingSV.value;
+const userTalking = isUserSpeakingSV.value;
 const sleeping = isSleepingSV.value;
+// Hece ritmi simülasyonu (Konuşurken veya kullanıcıyı dinlerken canlı ses şiddeti üretir)
+if (playing || userTalking) {
+if (now >= nextSyllableTime.value) {
+targetLoudness.value = playing
+? 0.25 + Math.random() * 0.75
+: 0.2 + Math.random() * 0.55;
+nextSyllableTime.value = now + 0.09 + Math.random() * 0.14;
+}
+} else {
+targetLoudness.value = 0;
+}
+currLoudness.value += (targetLoudness.value - currLoudness.value) * Math.min(1.0, dt * 18.0);
+const loudness = currLoudness.value;
+speakPulse.value = loudness;
+mouthPulse.value = playing ? loudness : 0;
 // 1. BALİSTİK SAKKADİK HAREKET (FLICK & SNAP)
-const intervalMult = playing ? 0.95 : sleeping ? 2.1 : 1.2;
+const intervalMult = playing ? 0.95 : userTalking ? 0.8 : sleeping ? 2.1 : 1.2;
 if (now >= nextLookChange.value) {
-// Sakkad anında %28 ihtimalle doğal göz kırpma refleksi tetikle
 if (!sleeping && Math.random() < 0.28) {
 blink.value = withSequence(
 withTiming(0.06, { duration: 60, easing: Easing.out(Easing.quad) }),
@@ -320,6 +336,11 @@ if (socialActiveSV.value) {
 targetLookX.value = socialXSV.value * 0.85 + (Math.random() - 0.5) * 0.08;
 targetLookY.value = socialYSV.value * 0.85 + (Math.random() - 0.5) * 0.06;
 nextLookChange.value = now + 0.35 + Math.random() * 0.45;
+} else if (userTalking) {
+// Kullanıcı konuşurken dikkatle ona odaklanır, sadece çok ufak mikro bakış atar
+targetLookX.value = (Math.random() - 0.5) * 0.14;
+targetLookY.value = -0.06 + (Math.random() - 0.5) * 0.08;
+nextLookChange.value = now + 0.45 + Math.random() * 0.5;
 } else if (isGlancing.value) {
 targetLookX.value = (Math.random() - 0.5) * 0.08;
 targetLookY.value = (Math.random() - 0.5) * 0.05;
@@ -332,7 +353,6 @@ isGlancing.value = true;
 const dir = Math.random() > 0.5 ? 1 : -1;
 const randX = dir * (0.55 + Math.random() * 0.45);
 let randY = (Math.random() - 0.5) * 0.35;
-// Çapraz bakış kısıtlaması (X çoksa Y menzilini kıs)
 const xIntensity = Math.abs(randX);
 randY *= Math.max(0.2, 1.0 - xIntensity * 0.6);
 targetLookX.value = randX;
@@ -349,7 +369,6 @@ nextLookChange.value = now + (0.9 + Math.random() * 1.3) * intervalMult;
 }
 }
 }
-// Power-based balistik interpolasyon (Hızlı fırlayıp aniden durma)
 const dx = targetLookX.value - currLookX.value;
 const dy = targetLookY.value - currLookY.value;
 const dist = Math.sqrt(dx * dx + dy * dy);
@@ -374,11 +393,11 @@ const jitterLerp = Math.min(1.0, dt * 11.0);
 currJitterX.value += (targetJitterX.value - currJitterX.value) * jitterLerp;
 currJitterY.value += (targetJitterY.value - currJitterY.value) * jitterLerp;
 // 3. SES DUYARLI MİKRO ODAK KAYMASI & TORSION (Z)
-if (playing && now >= nextAudioShift.value) {
-targetAudioX.value = (Math.random() - 0.5) * 0.06;
-targetAudioY.value = (Math.random() - 0.5) * 0.05;
-nextAudioShift.value = now + 0.15 + Math.random() * 0.2;
-} else if (!playing) {
+if (loudness > 0.05 && now >= nextAudioShift.value) {
+targetAudioX.value = (Math.random() - 0.5) * loudness * 0.12;
+targetAudioY.value = (Math.random() - 0.5) * loudness * 0.09;
+nextAudioShift.value = now + 0.14 + Math.random() * 0.18;
+} else if (loudness <= 0.05) {
 targetAudioX.value = 0;
 targetAudioY.value = 0;
 }
@@ -386,11 +405,10 @@ const audioLerp = Math.min(1.0, dt * 12.0);
 currAudioX.value += (targetAudioX.value - currAudioX.value) * audioLerp;
 currAudioY.value += (targetAudioY.value - currAudioY.value) * audioLerp;
 if (now >= nextMicro3D.value) {
-targetMicroZ.value = (Math.random() - 0.5) * (playing ? 2.4 : 1.1);
+targetMicroZ.value = (Math.random() - 0.5) * (playing ? 2.6 : 1.1);
 nextMicro3D.value = now + 0.7 + Math.random() * 0.8;
 }
 currMicroZ.value += (targetMicroZ.value - currMicroZ.value) * Math.min(1.0, dt * 9.0);
-// Tüm bileşenleri birleştir
 lookX.value = currLookX.value + currJitterX.value + tickOffsetX.value + currAudioX.value;
 lookY.value = currLookY.value + currJitterY.value + tickOffsetY.value + currAudioY.value;
 torsionZ.value = currMicroZ.value;
@@ -421,39 +439,12 @@ clearInterval(timer);
 cancelAnimation(blink);
 };
 }, [blink, voiceState]);
-// Konuşma Nabzı
-useEffect(() => {
-cancelAnimation(mouthPulse);
-cancelAnimation(speakPulse);
-if (voiceState === "speaking") {
-mouthPulse.value = withSequence(
-withTiming(1, { duration: 130 }),
-withTiming(0.2, { duration: 160 }),
-withTiming(0.95, { duration: 140 }),
-withTiming(0.15, { duration: 170 })
-);
-const t1 = setInterval(() => {
-mouthPulse.value = withSequence(
-withTiming(0.85 + Math.random() * 0.25, { duration: 110 }),
-withTiming(0.15 + Math.random() * 0.2, { duration: 140 })
-);
-speakPulse.value = withSequence(
-withTiming(0.7 + Math.random() * 0.3, { duration: 150 }),
-withTiming(0, { duration: 180 })
-);
-}, 280);
-return () => clearInterval(t1);
-} else {
-mouthPulse.value = withTiming(0, { duration: 120 });
-speakPulse.value = withTiming(0, { duration: 140 });
-}
-}, [mouthPulse, speakPulse, voiceState]);
 const gazeTravelX = isAvatar ? 4 : 25;
 const gazeTravelY = isAvatar ? 2.5 : 14;
 const leftEyeMotionStyle = useAnimatedStyle(() => ({
 transform: [
-{ scaleX: animLeftScaleX.value * interpolate(speakPulse.value,, [1, 1.04]) },
-{ scaleY: animLeftScaleY.value * blink.value * interpolate(speakPulse.value,, [1, 1.05]) },
+{ scaleX: animLeftScaleX.value * interpolate(speakPulse.value,, [1, 1.05]) },
+{ scaleY: animLeftScaleY.value * blink.value * interpolate(speakPulse.value,, [1, 1.07]) },
 { translateX: lookX.value * gazeTravelX },
 { translateY: lookY.value * gazeTravelY },
 { rotate: ${torsionZ.value}deg },
@@ -461,21 +452,20 @@ transform: [
 }));
 const rightEyeMotionStyle = useAnimatedStyle(() => ({
 transform: [
-{ scaleX: animRightScaleX.value * interpolate(speakPulse.value,, [1, 1.04]) },
-{ scaleY: animRightScaleY.value * blink.value * interpolate(speakPulse.value,, [1, 1.05]) },
+{ scaleX: animRightScaleX.value * interpolate(speakPulse.value,, [1, 1.05]) },
+{ scaleY: animRightScaleY.value * blink.value * interpolate(speakPulse.value,, [1, 1.07]) },
 { translateX: lookX.value * gazeTravelX },
 { translateY: lookY.value * gazeTravelY },
 { rotate: ${-torsionZ.value * 0.7}deg },
 ],
 }));
-// Paralaks İç Göz Bebeği (Dış gözden 1.38x daha hızlı kayarak 3D küre derinliği verir)
 const pupilParallaxX = isAvatar ? 2.8 : 16;
 const pupilParallaxY = isAvatar ? 2.0 : 10;
 const pupilAnimatedStyle = useAnimatedStyle(() => ({
 transform: [
 { translateX: lookX.value * pupilParallaxX },
 { translateY: lookY.value * pupilParallaxY },
-{ scale: animPupilScale.value * interpolate(speakPulse.value,, [1, 1.08]) },
+{ scale: animPupilScale.value * interpolate(speakPulse.value,, [1, 1.14]) },
 ],
 }));
 const bottomLidAnimatedStyle = useAnimatedStyle(() => ({
@@ -490,8 +480,8 @@ transform: [
 }));
 const mouthAnimatedStyle = useAnimatedStyle(() => ({
 transform: [
-{ scaleX: interpolate(mouthPulse.value,, [0.85, 1.2]) },
-{ scaleY: interpolate(mouthPulse.value,, [0.85, 1.28]) },
+{ scaleX: interpolate(mouthPulse.value,, [0.85, 1.24]) },
+{ scaleY: interpolate(mouthPulse.value,, [0.85, 1.35]) },
 ],
 }));
 const baseEyeWidth = (isAvatar ? 18 : 114) * faceStyle.eyeWidthScale;
@@ -549,7 +539,6 @@ boxShadow: ${isAvatar ? "0 0 8px" : "0 0 28px"} ${palette.eyeGlow},
 },
 ]}
 >
-{/* İç OLED Göz Bebeği + Çift Cam Parıltısı */}
 <Animated.View
 style={[
 styles.pupilCore,
@@ -589,7 +578,6 @@ opacity: 0.78,
 }}
 />
 </Animated.View>
-{/* Dinamik Üst & Alt Göz Kapakları */}
 <Animated.View
 pointerEvents="none"
 style={[
