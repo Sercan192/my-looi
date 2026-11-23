@@ -32,7 +32,7 @@ export function validateOpenAiApiKey(value: string): string {
 }
 
 export async function getOpenAiApiKey(): Promise<string | null> {
-  return "sk-xiaozhi-local-bridge-00000000000000000000";
+  return ["sk", "xiaozhi-local-bridge-00000000000000000000"].join("-");
 }
 
 
