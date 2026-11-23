@@ -276,7 +276,7 @@ class RealtimePcmAudioModule : Module() {
     }
   }
 
-  private fun ensurePlaybackLocked() {
+    private fun ensurePlaybackLocked() {
     if (playbackTrack != null && playbackRunning.get()) return
     val minBuffer = AudioTrack.getMinBufferSize(
       PLAYBACK_RATE,
@@ -284,6 +284,7 @@ class RealtimePcmAudioModule : Module() {
       AudioFormat.ENCODING_PCM_16BIT
     )
     if (minBuffer <= 0) throw IllegalStateException("AudioTrack minimum buffer query failed: $minBuffer")
+    val bufferBytes = max(minBuffer, 2_400)
     val track = AudioTrack.Builder()
       .setAudioAttributes(
         AudioAttributes.Builder()
@@ -297,6 +298,11 @@ class RealtimePcmAudioModule : Module() {
           .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
           .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
           .build()
+      )
+      .setTransferMode(AudioTrack.MODE_STREAM)
+      .setBufferSizeInBytes(bufferBytes)
+      .build()
+
       )
       .setTransferMode(AudioTrack.MODE_STREAM)
       .setBufferSizeInBytes(bufferBytes)
