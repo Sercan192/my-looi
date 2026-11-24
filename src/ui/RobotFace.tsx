@@ -131,7 +131,7 @@ const FACE_PALETTES: Record<FacePaletteId, FacePaletteVisual> = {
 };
 
 const SPRING_CONFIG = { damping: 14, stiffness: 185, mass: 0.72 };
-const ZERO_ONE: [number, number] =;
+const ZERO_ONE = [0, 1] as const;
 
 export function RobotFace(props: RobotFaceProps) {
   return <ClassicRobotFace {...props} />;
@@ -268,7 +268,7 @@ function ClassicRobotFace({
     socialAttentionActive,
     socialFaceVisible,
     socialGazeX,
-socialGazeY,
+    socialGazeY,
 socialXSV,
 socialYSV,
 voiceState,
