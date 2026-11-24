@@ -131,7 +131,7 @@ const FACE_PALETTES: Record<FacePaletteId, FacePaletteVisual> = {
 };
 
 const SPRING_CONFIG = { damping: 14, stiffness: 185, mass: 0.72 };
-const ZERO_ONE = [0, 1] as const;
+const ZERO_ONE = new Array<number>(0, 1);
 
 export function RobotFace(props: RobotFaceProps) {
   return <ClassicRobotFace {...props} />;
@@ -437,8 +437,8 @@ const gazeTravelX = isAvatar ? 4 : 25;
 const gazeTravelY = isAvatar ? 2.5 : 14;
 const leftEyeMotionStyle = useAnimatedStyle(() => ({
 transform: [
-{ scaleX: animLeftScaleX.value * interpolate(speakPulse.value, ZERO_ONE, [1, 1.05]) },
-{ scaleY: animLeftScaleY.value * blink.value * interpolate(speakPulse.value, ZERO_ONE, [1, 1.07]) },
+{ scaleX: animLeftScaleX.value * interpolate(speakPulse.value, ZERO_ONE, new Array(1, 1.05)) },
+{ scaleY: animLeftScaleY.value * blink.value * interpolate(speakPulse.value, ZERO_ONE, new Array(1, 1.07)) },
 { translateX: lookX.value * gazeTravelX },
 { translateY: lookY.value * gazeTravelY },
 { rotate: ${torsionZ.value}deg },
@@ -446,8 +446,8 @@ transform: [
 }));
 const rightEyeMotionStyle = useAnimatedStyle(() => ({
 transform: [
-{ scaleX: animRightScaleX.value * interpolate(speakPulse.value, ZERO_ONE, [1, 1.05]) },
-{ scaleY: animRightScaleY.value * blink.value * interpolate(speakPulse.value, ZERO_ONE, [1, 1.07]) },
+{ scaleX: animRightScaleX.value * interpolate(speakPulse.value, ZERO_ONE, new Array(1, 1.05)) },
+{ scaleY: animRightScaleY.value * blink.value * interpolate(speakPulse.value, ZERO_ONE, new Array(1, 1.07)) },
 { translateX: lookX.value * gazeTravelX },
 { translateY: lookY.value * gazeTravelY },
 { rotate: ${-torsionZ.value * 0.7}deg },
@@ -459,23 +459,23 @@ const pupilAnimatedStyle = useAnimatedStyle(() => ({
 transform: [
 { translateX: lookX.value * pupilParallaxX },
 { translateY: lookY.value * pupilParallaxY },
-{ scale: animPupilScale.value * interpolate(speakPulse.value, ZERO_ONE, [1, 1.14]) },
+{ scale: animPupilScale.value * interpolate(speakPulse.value, ZERO_ONE, new Array(1, 1.14)) },
 ],
 }));
 const bottomLidAnimatedStyle = useAnimatedStyle(() => ({
 transform: [
-{ translateY: interpolate(animBottomLid.value, ZERO_ONE, [isAvatar ? 16 : 98, isAvatar ? 5 : 34]) },
+{ translateY: interpolate(animBottomLid.value, ZERO_ONE, new Array(isAvatar ? 16 : 98, isAvatar ? 5 : 34)) },
 ],
 }));
 const topLidAnimatedStyle = useAnimatedStyle(() => ({
 transform: [
-{ translateY: interpolate(animTopLid.value, ZERO_ONE, [isAvatar ? -16 : -98, isAvatar ? -6 : -38]) },
+{ translateY: interpolate(animTopLid.value, ZERO_ONE, new Array(isAvatar ? -16 : -98, isAvatar ? -6 : -38)) },
 ],
 }));
 const mouthAnimatedStyle = useAnimatedStyle(() => ({
 transform: [
-{ scaleX: interpolate(mouthPulse.value, ZERO_ONE, [0.85, 1.24]) },
-{ scaleY: interpolate(mouthPulse.value, ZERO_ONE, [0.85, 1.35]) },
+{ scaleX: interpolate(mouthPulse.value, ZERO_ONE, new Array(0.85, 1.24)) },
+{ scaleY: interpolate(mouthPulse.value, ZERO_ONE, new Array(0.85, 1.35)) },
 ],
 }));
 const baseEyeWidth = (isAvatar ? 18 : 114) * faceStyle.eyeWidthScale;
